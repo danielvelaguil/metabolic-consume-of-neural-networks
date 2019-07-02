@@ -1,3 +1,8 @@
+/* file metabolic_cost_neural_network.cpp         Daniel Aguilar Velazquez danielvelaguil@gmail.com
+    This code belongs to the paper "Low metabolic cost of rich-club neural networks at criticality" 
+    The manuscript print the spikes and synaptic cost of avalanche activity in a hierarchical neural network
+*/
+
 #include <cstdio>
 #include <cmath>
 #include <cstdlib>
@@ -9,7 +14,7 @@
 using namespace std;
 
 
-double base(int neighbors[][150], int indegree[], int counter)  /// function for all the 1 step R.B. model
+double base(int neighbors[][125], int indegree[], int counter)  /// function for all the 1 step R.B. model
  {
  int j;
  int i;
@@ -35,7 +40,7 @@ double base(int neighbors[][150], int indegree[], int counter)  /// function for
  }
 
 
-double hub(int neighbors[][150], int indegree[], int counter, int evol) // function for the 1,..,n step R.B. model
+double hub(int neighbors[][125], int indegree[], int counter, int evol) // function for the 1,..,n step R.B. model
  {
  int j;
  int i;
@@ -54,12 +59,12 @@ double hub(int neighbors[][150], int indegree[], int counter, int evol) // funct
     }
   }
  return counter;
+
  }
 
 
 
 int main(int argc, char ** argv){
-  //int counter=0;
   int step=3;
   int evol=2,e;
   int clu=atof(argv[1]); // number of replicas of the R.B. network
@@ -68,28 +73,33 @@ int main(int argc, char ** argv){
   int nsteps=atoi(argv[4]); // number of time steps
   long seed=atoi(argv[5]); // seed
   float weight=atof(argv[6]); // synaptic weight (mV)
-  int tau=atoi(argv[7]); // synapic time course (ms)
+  int tau=int(10*atof(argv[7])); // synapic time course (ms)
   float global_inhibition=0.15,I; //percentage of low degree node inhibiton
   float h=0.1; // size of the time step (ms)
   int N=int(clu*pow(5,step)); //total size of the network
-  int sum,hubex,sum_ex,counter=0;;
-  int indegree[N];
-  int neighbors[N][150]; // maximum number of indegree connections=150
+  int sum,hubex,sum_ex,counter=0;
+  int indegree[1000];
+  int neighbors[1000][125]; // maximum number of indegree connections=150
   int i,j,k,n,m,l,z;
   float A1,B1,A2,B2; // variables for numeric integration
   int gene=4;
   float w[N];
   float u[N],v[N],a[N],b[N],c[N],d[N],s; // variables of the Izhikevich model
   float im[N]; // state of neurons for time evolution
-  int fired[N][tau];
-  int timer[N];
+  int syn[N][tau]; //indicates if synaptic time course is actived 
+  int timer[N]; // remember the number of time steps of synaptic time course
   int hubs_list[int(clu*5)];
-  int nhubs=0;
+  int nhubs=0;  
   int flag;
   float SC; // synaptic metabolic cost
   srand(seed);
+  int trans=8000; // transitory time steps
 
 
+/*/////////////////////////////////////////////////////
+///////////// Structure of neural network ///////////
+///////////////////////////////////////////////////*/
+  counter=0;
   // creating a hierarchical network //////////////
   for (i=0; i<int(N/5);i+=5)
    for (j=0;j<5;j++)
@@ -101,28 +111,34 @@ int main(int argc, char ** argv){
     counter=hub(neighbors,indegree,i+1,evol);
    evol+=1;
   }
-
  //////// rich club connectivity /////////////////////////
 for(i=24;i<N;i+=25)
  for (j=24;j<N;j+=25)
-  if(((double)rand()/((double)RAND_MAX+1.0))<kappa && i!=j && abs(i-j)<500) 
+  if(((double)rand()/((double)RAND_MAX+1.0))<kappa && i!=j && abs(i-j)<pow(5,3)) 
    {
    neighbors[int(i)][int(indegree[i])]=j;
    indegree[i]+=1;
    }
 
-//////// regular excitatory neurons /////////////////////////
+
+//////////////////////////////////////////////////////
+///////////// Inhibition/excitation behavior ///////////
+////////////////////////////////////////////////////
+
+
+
+//////// low degree excitatory neurons /////////////////////////
 for(i=0;i<N;i++)
  w[i]=weight;
  
- //////// regular inhibition neurons /////////////////////////
+ //////// low degree inhibition neurons /////////////////////////
 for(i=0;i<N;i+=25)
  for (j=i;j<i+24;j++)
   if(((double)rand()/((double)RAND_MAX+1.0))<global_inhibition)
     w[j]=-weight;
 
 
- //////// hub inhibition neurons  total /////////////////////////
+ //////// hub inhibition neurons /////////////////////////
 
 for(i=24;i<N;i+=25)
  w[i]=-weight;
@@ -190,20 +206,24 @@ for(i=0;i<N;i++)
  v[i]=c[i];
  u[i]=2;
  for(j=0;j<tau;j++)
-  fired[i][j]=0;
+  syn[i][j]=0;
  }
 
 l=0;
 e=0;
 ////////////////////// evolution //////////////////////////////
-for(j=0;j<nsteps+1000;j++)
+for(j=0;j<nsteps+trans;j++)
  {
+  SC=0.0;
   for(i=0;i<N;i++) 
   {
   s=0;
   for(k=0;k<indegree[i];k++) // sum of incoming potentitals
-   if(fired[neighbors[i][k]][l]==1)
+   if(syn[neighbors[i][k]][l]==1)
+    {
     s+=w[neighbors[i][k]];
+    SC+=abs(w[neighbors[i][k]]);
+    }
   if(w[i]>0.0)
    I=5*((double)rand()/((double)RAND_MAX+1.0));
   else
@@ -218,7 +238,7 @@ for(j=0;j<nsteps+1000;j++)
    {
     for(z=0;z<tau;z++)
      if(z!=l)
-      fired[i][z]=1;
+      syn[i][z]=1;
    timer[i]=tau-1;
    v[i]=c[i];
    u[i]=u[i]+d[i];
@@ -227,9 +247,9 @@ for(j=0;j<nsteps+1000;j++)
   else if(v[i]<c[i])
    {
    if(l==tau-1 && timer[i]<=0)
-    fired[i][0]=0;
+    syn[i][0]=0;
    else if(l!=tau-1 && timer[i]<=0)
-    fired[i][l+1]=0;
+    syn[i][l+1]=0;
    v[i]=c[i];
    im[i]=c[i];
    timer[i]+=-1;
@@ -237,33 +257,30 @@ for(j=0;j<nsteps+1000;j++)
   else
    {
    if(l==tau-1 && timer[i]<=0)
-    fired[i][0]=0;
+    syn[i][0]=0;
    else if(l!=tau-1 && timer[i]<=0)
-    fired[i][l+1]=0;
+    syn[i][l+1]=0;
    im[i]=v[i];
    timer[i]+=-1;
    }
   }
-  if(j>=1000)
+  if(j>=trans)
    {   
-   e++;  
-   sum=0;                 //   number of fired neurons
+   sum=0;                 // counts the number of neurons that send synaptic potentials
    for(k=0;k<N;k++)
     {
-    sum+=fired[k][l];
-    if(fired[k][l]==1)
-     cout<<k<<endl;  // print the neurons that fire and send synaptic potentials
-    }
+    sum+=syn[k][l];
+    if(im[k]==30)
+     cout<<k<<" "<<0.0<<endl;  // print the neurons that fire (action potentials)
+    }                     // column 1: number of spikes, column 2: synaptic cost
    if(sum==0)
-    {
-    cout<<-1<<endl; // if no neurons fire then it is printed "-1" for the indication of the end of the avalanche
-    e=0;
-    }
-   }
+    cout<<-1<<" "<<0.0<<endl; // if no neurons fire and send synaptic potentials it is printed "-1" to indicate the end of the avalanche
+   else
+    cout<<0.0<<" "<<SC<<endl;  // if synaptic potentials are sent it is printed the synaptic cost  
+   }                         // column 1: number of spikes, column 2: synaptic cost
   if(l==tau-1)
    l=0;
   else
    l+=1;
   }
 }
-
